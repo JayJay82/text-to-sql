@@ -1,110 +1,78 @@
-import os
 import re
-import duckdb
-import pandas as pd
-import streamlit as st
 import json
-from autogen.agentchat import AssistantAgent, UserProxyAgent
-from autogen.oai.client import OpenAIClient
+import time
+import streamlit as st
 
-# ------------- 1. CONFIGURAZIONE -------------
-MODEL = "gpt-4o-mini"
+from data.db import run_query
+from agents.agents import nl2sql_agent, guard_agent
+from data.logger import log_interaction
 
-# ------------- 2. CONNESSIONE A DUCKDB -------------
-con = duckdb.connect(":memory:")
-con.execute("CREATE VIEW data AS SELECT * FROM 'data/*.parquet';")
-
-def run_query(sql: str) -> pd.DataFrame:
-    return con.execute(sql).df()
-
-# ------------- 3. DEFINIZIONE AGENTI AUTOGEN -------------
-llm_config = {
-    "config_list": [
-        {
-            "model": MODEL,
-            "api_key": os.getenv("OPENAI_API_KEY"),
-            "base_url": "https://api.openai.com/v1"
-        }
-    ]
-}
-
-user_agent = UserProxyAgent("user")
-nl2sql_agent_template = """-Sei un assistente che deve trasformare il linguaggio naturale in query duckdb\n'
-                         '-La view sulla quale lavorerai si chiama data\n'
-                         '-i file sui quali eseguirai le query sono file parquet\n'
-                         'Restituisci **solo** lo statement SQL nel primo blocco ```sql``` senza commenti.\n'
-                         'Se devi manipolare il campo InvoiceDate, considera che è nel formato 'MM/DD/YYYY HH:MM'. Usa STRPTIME(InvoiceDate, '%m/%d/%Y %H:%M') per convertirlo in TIMESTAMP.'
-                         'Restituisci **solo** lo statement SQL nel primo blocco ```sql``` senza commenti.\n'
-                         '-la view è cosi composta:\n'
-                         '-- InvoiceNo , questo campo corrisponde al numero invoice ed è di tipo stringa\n'
-                         '-- StockCode , questo campo descrive identificativo del prodotto ed è di tipo stringa\n'
-                         '-- Description , descrizione del prodotto ed è di tipo stringa\n'
-                         '-- Quantity , descrive la quantità del prodotto acquistata ed è di tipo i64\n'
-                         '-- InvoiceDate , descrive la data dell acquisto ed è di tipo stringa\n'
-                         '-- UnitPrice , descrive la quantità ed è di tipo f64\n'
-                         '-- CustomerID , descrive id del cliente ed è di tipo f64\n'
-                         '-- Country , descrive il luogo del negozio ed è di tipo stringa\n'
-                         'questo è un esempio di record:[InvoiceNo=536365,StockCode=85123A,Description=WHITE HANGING HEART T-LIGHT HOLDER,Quantity=6,InvoiceDate=12/1/2010 8:26,UnitPrice=2.55,CustomerID=17850.0,Country=United Kingdom')
-                         """
-nl2sql_agent = AssistantAgent(
-    "nl2sql",
-    llm_config=llm_config,
-    system_message=nl2sql_agent_template
-)
-
-guard_agent = AssistantAgent(
-    "guard",
-    llm_config=llm_config,
-    system_message="""
-    Verifica che lo SQL sia sicuro
-    Se non valido, rispondi con ERRORE.
-    Se la query NON è sicura, spiega nel campo "reason" perché.
-    Rispondi con un JSON con due campi:
-    - "valid": true/false
-    - "reason": spiegazione della valutazione
-    """
-)
-
-# ------------- 4. INTERFACCIA UTENTE STREAMLIT (CHAT STYLE) -------------
 st.set_page_config(page_title="Chat-to-SQL", layout="wide")
 st.title("Chat-to-SQL (Parquet)")
 
+# Chat history in session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Visualizza la chat
+# Display existing messages
 for msg in st.session_state.messages:
-    role = "👤 Tu" if msg["role"] == "user" else "🤖 Assistant"
     with st.chat_message(msg["role"]):
-        st.markdown(f"**{role}:**\n\n{msg['content']}")
+        label = "👤 You:" if msg["role"] == "user" else "🤖 Assistant:"
+        st.markdown(f"**{label}** {msg['content']}")
 
-# Input dell'utente
-if prompt := st.chat_input("Scrivi una domanda sui dati..."):
+# Handle new user input
+if prompt := st.chat_input("Ask a question about the data..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.markdown(f"**👤 Tu:**\n\n{prompt}")
+        st.markdown(f"**👤 You:** {prompt}")
 
-    with st.spinner("Genero SQL e recupero i dati..."):
-        # 1. Genera SQL da linguaggio naturale
-        response_sql = nl2sql_agent.generate_reply(messages=[{"role": "user", "content": prompt}])
-        match = re.search(r"```sql\s*(.*?)```", response_sql, re.DOTALL)
-        sql_code = match.group(1).strip() if match else response_sql.strip()
-        print(sql_code)
+    with st.spinner("Generating SQL and executing..."):
+        # 1. Generate SQL
+        response_sql = nl2sql_agent.generate_reply(
+            messages=[{"role": "user", "content": prompt}]
+        )
+        match_sql = re.search(r"```(?:sql)?\s*(.*?)```", response_sql, re.DOTALL)
+        sql_code = match_sql.group(1).strip() if match_sql else response_sql.strip()
 
-        # 2. Verifica sicurezza SQL
-        guard_response = guard_agent.generate_reply(messages=[{"role": "user", "content": sql_code}])
+        # 2. Validate SQL
+        guard_resp = guard_agent.generate_reply(
+            messages=[{"role": "user", "content": sql_code}]
+        )
+        # Extract JSON from fenced code block if present
+        match_json = re.search(r"```json\s*(\{.*?\})\s*```", guard_resp, re.DOTALL)
+        guard_text = match_json.group(1) if match_json else guard_resp
         try:
-            guard_json = json.loads(guard_response)
-            if not guard_json.get("valid", False):
-                answer = f"❌ Query non sicura: {guard_json.get('reason', 'Motivo non specificato.')}"
-            else:
-                try:
-                    answer = run_query(sql_code).to_markdown()
-                except Exception as e:
-                    answer = f"❌ Errore durante l'esecuzione SQL:\n{e}"
+            guard_json = json.loads(guard_text)
         except json.JSONDecodeError:
-            answer = "❌ Errore: la risposta del validatore non è in formato JSON."
+            guard_json = {"valid": False, "reason": "Invalid guard response format."}
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+        # Initialize defaults
+        df = None
+        exec_time = None
+        error_msg = None
+
+        if not guard_json.get("valid", False):
+            error_msg = f"❌ Query not safe: {guard_json.get('reason')}"
+        else:
+            # 3. Execute and time the query
+            start = time.time()
+            try:
+                df = run_query(sql_code)
+            except Exception as e:
+                error_msg = f"❌ Error executing SQL: {e}"
+            finally:
+                end = time.time()
+                exec_time = int((end - start) * 1000)
+
+        # 4. Log interaction
+        result_md = df.to_markdown() if df is not None else ""
+        log_interaction(prompt, sql_code, result_md, exec_time)
+
+    # Display assistant response
+    st.session_state.messages.append({"role": "assistant", "content": error_msg or "[Table displayed]"})
     with st.chat_message("assistant"):
-        st.markdown(f"**🤖 Assistant:**\n\n{answer}")
+        if error_msg:
+            st.markdown(error_msg)
+        else:
+            st.dataframe(df)
+            st.markdown(f"_Executed in {exec_time} ms_")
