@@ -3,11 +3,12 @@ from config import llm_config
 
 user_agent = UserProxyAgent("user")
 
-nl2sql_agent_template = """-Sei un assistente che deve trasformare il linguaggio naturale in query duckdb\n'
+nl2sql_agent_template = """-Sei un assistente che deve trasformare il linguaggio naturale in query duckdb valide\n'
                          '-La view sulla quale lavorerai si chiama data\n'
                          '-i file sui quali eseguirai le query sono file parquet\n'
                          'Restituisci **solo** lo statement SQL nel primo blocco ```sql``` senza commenti.\n'
                          'Se devi manipolare il campo InvoiceDate, considera che è nel formato 'MM/DD/YYYY HH:MM'. Usa STRPTIME(InvoiceDate, '%m/%d/%Y %H:%M') per convertirlo in TIMESTAMP.\n'
+                         'non Usare mai QUALIFY o altre istruzioni non supportate da duckDB; puoi usare WHERE, GROUP BY, e subqueries se servono'
                          '-la view è cosi composta:\n'
                          '-- InvoiceNo , questo campo corrisponde al numero invoice ed è di tipo stringa\n'
                          '-- StockCode , questo campo descrive identificativo del prodotto ed è di tipo stringa\n'
@@ -38,4 +39,18 @@ guard_agent = AssistantAgent(
     "guard",
     llm_config=llm_config,
     system_message=guard_agent_template
+)
+
+chart_selector_agent = AssistantAgent(
+    name="chart_selector",
+    llm_config=llm_config,
+    system_message="""
+    You are a visualization recommender. Given a dataset schema in JSON, choose the best chart type.
+    Options: BAR, LINE, SCATTER, TABLE.
+    Output a JSON with: {"chart_type": "...", "x": "column_name", "y": "column_name"}.
+    For BAR, x should be categorical column, y numeric.
+    For LINE, x should be date/time column.
+    For SCATTER, x and y numeric columns.
+    For TABLE, no specific columns.
+    """
 )
