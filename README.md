@@ -94,4 +94,4 @@ text_to_sql/
 ## 🧑‍💻 Author
 
 **Costantino Cavallo**
-Proof of Concept for Document Intelligence Services in Gravity Platform.
+Proof of Concept for Document Intelligence Services.
