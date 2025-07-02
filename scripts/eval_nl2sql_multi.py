@@ -84,7 +84,6 @@ def main():
         all_rows.extend(bench(m, docs, verbose=args.verbose))
 
     if args.store_results:
-        validation_results.delete_many({})
         validation_results.insert_many(all_rows)
         print("Salvati", len(all_rows), "record in validation_results")
 
