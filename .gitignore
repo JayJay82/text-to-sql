@@ -1,0 +1,87 @@
+# --------------------
+# Python / General
+# --------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*$py.class
+*.so
+*.dll
+*.dylib
+
+# --------------------
+# Virtual Envs
+# --------------------
+.venv/
+venv/
+env/
+ENV/
+
+# --------------------
+# Secrets & Env files
+# --------------------
+.env
+.env.*
+!.env.example          # template OK to keep
+
+# --------------------
+# Streamlit
+# --------------------
+.streamlit/secrets.toml
+.streamlit/config.toml
+.streamlit/cache/
+.streamlit/*.lock
+
+# --------------------
+# DuckDB / Data files
+# --------------------
+              # ignore raw data; keep scripts & metadata
+!data/README.md        # (retain any docs)
+
+# --------------------
+# Logs & Reports
+# --------------------
+*.log
+*.out
+*.err
+pip-log.txt
+coverage.xml
+htmlcov/
+.coverage
+
+# --------------------
+# Testing
+# --------------------
+.tox/
+.pytest_cache/
+.nox/
+.mypy_cache/
+
+# --------------------
+# IDE / Editor
+# --------------------
+.idea/
+.vscode/
+*.suo
+*.user
+*.swp
+*.swn
+*.bak
+*.tmp
+
+# --------------------
+# OS miscellanea
+# --------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+Desktop.ini
+
+# --------------------
+# Packages / Builds
+# --------------------
+build/
+dist/
+*.egg-info/
+*.wheel
