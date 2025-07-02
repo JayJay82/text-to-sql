@@ -5,6 +5,7 @@ from datetime import datetime
 client = MongoClient("mongodb://localhost:27017")
 db = client["Text_to_sql"]
 logs = db["logs"]
+validation = db["validation_set"]
 
 def log_interaction(prompt: str,
                     sql: str,
