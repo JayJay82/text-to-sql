@@ -6,6 +6,7 @@ client = MongoClient("mongodb://localhost:27017")
 db = client["Text_to_sql"]
 logs = db["logs"]
 validation = db["validation_set"]
+validation_results = db["validation_results"]
 
 def log_interaction(prompt: str,
                     sql: str,

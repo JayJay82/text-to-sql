@@ -1,118 +1,147 @@
-# 💬 Chat-to-SQL (DuckDB + AutoGen + Visualization)
+# 💬 Chat-to-SQL (DuckDB + AutoGen + Visualization)
 
-Natural-language questions ➜ **DuckDB SQL** ➜ instant answers & charts.
-This Streamlit application uses a multi-agent AutoGen pipeline to translate plain-English queries into safe SQL, executes them in-memory on Parquet files, visualises results, and logs every interaction to MongoDB.
+Ask in natural language → get SQL, tables & charts.
+Multi‑agent AutoGen pipeline, in‑memory DuckDB on Parquet, Streamlit UI, Mongo‑backed observability.
 
 ---
 
 ## 🚀 Key Features
 
-* **Chat interface** – ask in English or Italian, get answers and charts.
-* **LLM NL→SQL conversion** – `nl2sql_agent` generates DuckDB-compatible SQL.
-* **SQL guard** – validates that queries are read-only and auto-limit ≤ 200 rows.
-* **Zero-setup analytics** – DuckDB mounts all `.parquet` files as the view `data`.
-* **Auto-visualisation** – `chart_selector_agent` suggests BAR / LINE / SCATTER / TABLE.
-* **Observability** – MongoDB stores prompts, SQL, markdown results, latency.
-* **Multi-page UI** – Query • Visualizer • Logs • Metrics dashboards.
+* **Chat interface** (EN/IT) → LLM generates SQL, guard enforces read‑only, results shown.
+* **Auto‑Charts** – a second agent suggests BAR / LINE / SCATTER / TABLE.
+* **Zero‑setup analytics** – DuckDB mounts all `.parquet` files as view **`data`**.
+* **Observability** – every prompt/SQL/result/latency stored in MongoDB.
+* **Validation & Benchmark suite** – 20 gold Q↔SQL pairs, accuracy + latency vs multiple OpenAI models.
+* **Streamlit multi‑page UI** – Query • Visualizer • Logs • Metrics.
 
 ---
 
 ## 📁 Project Structure
 
-```
+````
 text_to_sql/
-├── app.py                 # Streamlit entry-point
-├── agents/                # nl2sql, guard, chart_selector (AutoGen)
-├── data/
-│   ├── db.py              # DuckDB connection + view `data`
-│   └── logger.py          # Mongo client, log & validation helpers
-├── pages/                 # extra Streamlit pages (viz, logs, metrics)
-├── scripts/
-│   └── generate_validation_set.py  # seed 20 Q&A pairs into Mongo
-├── config.py              # global settings (OpenAI model, paths)
-└── requirements.txt       # Python deps
-```
+├─ app.py                       # Streamlit entry‑point
+├─ agents/                      # nl2sql, guard, chart selector
+├─ data/
+│  ├─ db.py                     # DuckDB connection + view `data`
+│  └─ logger.py                 # Mongo clients: logs, validation sets
+├─ scripts/
+│  ├─ generate_validation_set.py   # seed 20 gold pairs
+│  ├─ eval_nl2sql.py               # accuracy + timings (single model)
+│  └─ eval_nl2sql_multi.py         # benchmark many models
+├─ utils/
+│  ├─ sql_extract.py            # strips ```sql … ``` wrappers
+│  └─ eval_helpers.py           # compare_dfs (alias‑agnostic result match)
+├─ pages/                       # viz, logs, metrics tabs
+├─ config.py                    # settings (OpenAI key/model, paths)
+└─ requirements.txt
+````
 
 ---
 
 ## 🧩 Installation & Setup
 
 ```bash
-# 1 – clone & enter
+# clone & enter
 $ git clone https://github.com/your-user/chat-to-sql.git
 $ cd chat-to-sql
 
-# 2 – create virtualenv & install deps
-$ python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# create & activate venv
+$ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+# install deps
 $ pip install -r requirements.txt
 
-# 3 – environment
-$ cp .env.example .env      # edit OPENAI_API_KEY, MONGO_URI, DATA_PARQUET
+# copy env template & fill OPENAI_API_KEY, MONGO_URI, DATA_PARQUET
+$ cp .env.example .env
 
-# 4 – run Streamlit
-$ streamlit run app.py      # http://localhost:8501
+# run Streamlit
+$ streamlit run app.py   # http://localhost:8501
 ```
 
-> **MongoDB** must be reachable at `MONGO_URI`.
-> On first launch DuckDB creates the view **`data`** over the Parquet file defined in `DATA_PARQUET`.
+> DuckDB crea automaticamente la vista **`data`** sul Parquet indicato.
 
 ---
 
-## ✅ Validation-set (20 domande / SQL)
+## ✅ Validation & Evaluation
 
-Genera e semina nel database le coppie domanda→query per i test automatizzati:
+### 1. Semina validation‑set (20 domande / SQL)
 
 ```bash
-# verifica che le query girino su DuckDB e poi inseriscile in Text_to_sql.validation
-$ python -m scripts.generate_validation_set
-
-# skip della verifica (più veloce)
-$ python -m scripts.generate_validation_set --skip-check
+python -m scripts.generate_validation_set          # verifica + insert
+python -m scripts.generate_validation_set --skip-check   # solo insert
 ```
 
-La collection risultante è `Text_to_sql.validation`.
+Popola `Text_to_sql.validation`.
+
+### 2. Valuta un singolo modello
+
+```bash
+python -m scripts.eval_nl2sql --verbose --store-results
+```
+
+* Accuracy, gen\_ms, exec\_ms salvati in `Text_to_sql.validation_results`.
+
+### 3. Confronta più modelli OpenAI
+
+```bash
+python -m scripts.eval_nl2sql_multi \
+       --models gpt-3.5-turbo,gpt-4o-mini,gpt-4o \
+       --verbose --store-results
+```
+
+Risultati con campo `model` per KPI modell‑wise.
 
 ---
 
-## 🐞 Debug con PyCharm
+## 🐞 Debug & Run Configs (PyCharm)
 
-1. **Run ▶ Edit Configurations…** → **+ Python**.
-2. Imposta:
+### A. Generate validation set
 
-   * **Name:** `generate_validation_set`
-   * **Module name:** `scripts.generate_validation_set`
-   * **Parameters:** *(opz.)* `--skip-check`
-   * **Working directory:** `$ProjectFileDir$`
-3. (Facolt.) in **Environment variables** aggiungi `MONGO_URI` e l’eventuale `OPENAI_API_KEY` se non usi `.env`.
-4. Assicurati che “Add content/source roots to PYTHONPATH” sia spuntato.
-5. **Apply → OK**, poi ▶ Run o 🐞 Debug.
+| Field           | Value                             |
+| --------------- | --------------------------------- |
+| **Type**        | *Python*                          |
+| **Module name** | `scripts.generate_validation_set` |
+| **Parameters**  | *(opz.)* `--skip-check`           |
+| **Working dir** | `$ProjectFileDir$`                |
 
-Con “Module name” PyCharm lancia `python -m scripts.generate_validation_set`, includendo la root del progetto nel `sys.path`, quindi gli import `from data...` funzionano senza hack.
+### B. Benchmark multi‑model (eval\_script)
 
-### Debug Streamlit
+| Field           | Value                                                                              |
+| --------------- | ---------------------------------------------------------------------------------- |
+| **Module name** | `scripts.eval_nl2sql_multi`                                                        |
+| **Parameters**  | `--models gpt-4o-mini,gpt-4o --verbose --store-results`                            |
+| **Working dir** | `$ProjectFileDir$`                                                                 |
+| **Env vars**    | `OPENAI_API_KEY=sk-…;MONGO_URI=mongodb://localhost:27017;AUTOGEN_USE_DOCKER=false` |
 
-Crea una seconda configurazione:
+*(In PyCharm: Run ▶ Edit Configurations… → + Python → set **module** mode, paste the values above. Separate multiple env vars with semicolons.)*
 
-| Campo           | Valore                   |
+### C. Streamlit live Debug Streamlit live Debug
+
+| Field           | Value                    |
 | --------------- | ------------------------ |
 | **Module name** | `streamlit.cli.main_run` |
 | **Parameters**  | `app.py`                 |
 | **Working dir** | `$ProjectFileDir$`       |
 
-Esegui in debug per mettere breakpoint dentro agenti, DuckDB, ecc.
+---
+
+## 📋 Dependencies (core)
+
+`streamlit` • `duckdb` • `pandas` • `openai>=1.22` • `autogen` • `pymongo` • `sqlparse` • `numpy` • `tabulate`
 
 ---
 
-## 📋 Dependencies
+## 🛠️ Usage walkthrough
 
-* `streamlit`  •  `duckdb`  •  `pandas`  •  `openai>=1.22`  •  `autogen`
-* `pymongo`  •  `tabulate`  •  *(dev)* `pytest` • `ruff`
+1. **Query** – chat, tabella, SQL mostrata nei log.
+2. **Visualizer** – chat‑to‑chart (automated chart type).
+3. **Logs** – ricostruisci ogni turno, con SQL & durata.
+4. **Metrics** – KPI di latenza, success‑rate, top query, accuracy per modello.
 
 ---
 
-## 🛠️ Usage
+## 🧑‍💻 Author & License
 
-* **Query** – chat-to-SQL, risposte tabellari.
-* **Visualizer** – chat-to-chart con suggerimento tipo grafico.
-* **Logs** – cronologia completa con prompt, SQL, durata, successo/fallimento.
-* **Metrics** – dashb
+**Costantino Cavallo**  — Proof‑of‑Concept for Document Intelligence Services.
+MIT License.
